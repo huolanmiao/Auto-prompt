@@ -13,7 +13,7 @@ from torch.optim import Adam
 from datetime import datetime
 from .data.knowledge import KnowledgeDataset
 import numpy as np
-import openai
+from openai import OpenAI
 import os
 import asyncio
 import time
@@ -34,7 +34,7 @@ class ExampleSelection(LightningModule):
         parser.add_argument(
             "--knowledge_data_path",
             type=str,
-            default="datasets/gsm8k_/code-davinci-002/gsm8k_pool_100.json",
+            default="datasets/gsm8k_/deepseek/gsm8k_pool_20.json",
         )
         parser.add_argument(
             "--train_data_path",
@@ -47,17 +47,17 @@ class ExampleSelection(LightningModule):
             default="datasets/gsm8k_/gsm8k_val_100.json",
         )
         parser.add_argument("--batch_size", type=int, default=10)
-        parser.add_argument("--lr", type=float, default=1e-3)
+        parser.add_argument("--lr", type=float, default=1e-2)
         parser.add_argument("--num_workers", type=int, default=0)
 
-        parser.add_argument("--model_name", type=str, default="text-ada-001")
+        parser.add_argument("--model_name", type=str, default="deepseek")
         parser.add_argument(
             "--model_checkpoint",
             type=str,
             default="models/model20221028-144859_6.pt",
         )        
         parser.add_argument("--sample_size", type=int, default=8)
-        parser.add_argument("--pge_avg_samples", type=int, default=10)
+        parser.add_argument("--pge_avg_samples", type=int, default=5)
 
         parser.add_argument("--task", type=str, choices=["gsm8k","svamp","asdiv","aqua", "singleop","csqa","strategyqa","letter","obqa","esnli", "sst2"],
                             help="Indicate Task Type",default="gsm8k")
@@ -66,7 +66,7 @@ class ExampleSelection(LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.save_hyperparameters()
-        openai.api_key = os.getenv("OPENAI_API_KEY")
+        # openai.api_key = os.getenv("OPENAI_API_KEY")
 
         self.tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
         self.knowledge_dataset = KnowledgeDataset(self.hparams.knowledge_data_path)
@@ -77,7 +77,9 @@ class ExampleSelection(LightningModule):
         train_size = len(self.knowledge_dataset_train)
         # Stores probabilities for each example
 
-        self.sample_probs = torch.FloatTensor([[1 / len(self.knowledge_dataset) * 8] * int(len(self.knowledge_dataset)/8)] * self.hparams.sample_size) 
+        pool_size = len(self.knowledge_dataset)
+        # self.sample_probs = torch.FloatTensor([[1 / len(self.knowledge_dataset) * 8] * int(len(self.knowledge_dataset)/8)] * self.hparams.sample_size) 
+        self.sample_probs = torch.FloatTensor([[1 / pool_size] * pool_size] * self.hparams.sample_size) 
         #self.sample_probs = torch.load("./models/xxx.pt")
         self.sample_probs.requires_grad = True
         
@@ -126,35 +128,47 @@ class ExampleSelection(LightningModule):
         received = False
 
         while not received:
-            try:
-                response = openai.Completion.create(*args, **kwargs)
+            # try:
+                client = OpenAI(api_key="sk-e39450eb1e1d4a8e825df0a7e4f5f411", base_url="https://api.deepseek.com")
+                response = client.chat.completions.create(*args, **kwargs)
                 received = True
-            except:
-                error = sys.exc_info()[0]
-                if error == openai.error.InvalidRequestError:  # something is wrong: e.g. prompt too long
-                    print(
-                        f"InvalidRequestError\nPrompt passed in:\n\n{kwargs['prompt']}\n\n")
-                    assert False
+            # except:
+            #     error = sys.exc_info()[0]
+            #     # if error == openai.error.InvalidRequestError:  # something is wrong: e.g. prompt too long
+            #     #     print(
+            #     #         f"InvalidRequestError\nPrompt passed in:\n\n{kwargs['prompt']}\n\n")
+            #     #     assert False
 
-                print("API error:", error)
-                time.sleep(5)
+            #     print("API error:", error)
+            #     time.sleep(5)
         return response
 
     # assuming only one target for one prompt, added to the end of the prompt
     def forward(self, prompts, targets):
-        rsp = self.complete_gpt3(
-            model="text-davinci-002",
-            prompt=prompts,
+        # print(len(targets))
+        # print(prompts[0])
+        # print("")
+        # print(prompts[1])
+        # print("")
+        # print(prompts[2])
+        rsp = [self.complete_gpt3(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": f"{prompt}"}
+            ] ,
             max_tokens=256,
             temperature = 0,
-            logprobs = 5
-        )
+            logprobs = True
+        ) for prompt in prompts]
 
         labels = []
         preds, all_losses = [], []
         match = 0
+        
         for i , target in enumerate(targets):
-            text = rsp['choices'][i]["text"]
+            # print(rsp[i])
+            text = rsp[i].choices[0].message.content
 
             if(self.hparams.task == "gsm8k"):
                 pattern = "The answer is \d{1,}\."
@@ -163,23 +177,24 @@ class ExampleSelection(LightningModule):
                     #check if match the ground truth
                     if(sttr.group(0)[14:-1] == target.replace(",","")):
                         match += 1
-                        token = tokenizer(" " + sttr.group(0)[14:-1])
-                        if((" " + sttr.group(0)[14:-1]) in rsp['choices'][i]["logprobs"]["tokens"]):
-                            ans_index = rsp['choices'][i]["logprobs"]["tokens"].index(" "+ sttr.group(0)[14:-1])
-                            prob = np.exp(rsp['choices'][i]["logprobs"]["token_logprobs"][ans_index])
-                            loss = -np.log(prob) * FACTOR
-                            all_losses.append(loss)
-                        elif(tokenizer.decode(token['input_ids'][0]) in rsp['choices'][i]["logprobs"]["tokens"]):
-                            ans_index = rsp['choices'][i]["logprobs"]["tokens"].index(tokenizer.decode(token['input_ids'][0]))
-                            prob = np.exp(rsp['choices'][i]["logprobs"]["token_logprobs"][ans_index])
-                            loss = -np.log(prob) * FACTOR
-                            all_losses.append(loss)
-                        else:
-                            loss = -np.log(0.9) * FACTOR
-                            all_losses.append(loss)
+                        # token = tokenizer(" " + sttr.group(0)[14:-1])
+                        # if((" " + sttr.group(0)[14:-1]) in rsp['choices'][i]["logprobs"]["tokens"]):
+                        #     ans_index = rsp[i].choices[0].logprobs["tokens"].index(" "+ sttr.group(0)[14:-1])
+                        #     prob = np.exp(rsp[i]['choices'][0]["logprobs"]["token_logprobs"][ans_index])
+                        #     loss = -np.log(prob) * FACTOR
+                        #     all_losses.append(loss)
+                        # elif(tokenizer.decode(token['input_ids'][0]) in rsp[i]['choices'][0]["logprobs"]["tokens"]):
+                        #     ans_index = rsp[i]['choices'][0]["logprobs"]["tokens"].index(tokenizer.decode(token['input_ids'][0]))
+                        #     prob = np.exp(rsp[i]['choices'][0]["logprobs"]["token_logprobs"][ans_index])
+                        #     loss = -np.log(prob) * FACTOR
+                        #     all_losses.append(loss)
+                        # else:
+                        #     loss = -np.log(0.9) * FACTOR
+                        #     all_losses.append(loss)
                     else:
-                        loss = -np.log(0.05) * FACTOR
-                        all_losses.append(loss)                           
+                        pass
+                        # loss = -np.log(0.05) * FACTOR
+                        # all_losses.append(loss)                           
                 else:
                     loss = -np.log(0.05) * FACTOR
                     all_losses.append(loss)                    
@@ -249,7 +264,10 @@ class ExampleSelection(LightningModule):
                 else:
                     loss = -np.log(0.05) * FACTOR
                     all_losses.append(loss)  
-        return np.mean(all_losses), match/10
+        # print(f"match:{match}")
+        # print(f"len: {len(targets)}")
+        # print(f"acc: {match/len(targets)}")
+        return 0, match/len(targets)
         
     def training_step(self, batch, batch_idx=None):
         
@@ -262,12 +280,13 @@ class ExampleSelection(LightningModule):
             #print(prompts_dist)
             prompts_indices_list = []
             loss_list = []
+            acc_list = []
             #prompts, targets = knowledge_data['prompt'], knowledge_data['targets']
             question, rationale, answer, ground_truth = knowledge_data['Question'],knowledge_data['Rationale'],knowledge_data['Answer'],knowledge_data['Ground_truth']
 
             prompts = []
             targets = []
-
+            
             for i in range(0,len(question)):
                 if(self.hparams.task == "strategyqa"):
                     prompts.append("Q: Yes or no: " + question[i] + "\n" + "A:")
@@ -276,10 +295,12 @@ class ExampleSelection(LightningModule):
                 else:
                     prompts.append("Q: " + question[i] + "\n" + "A:")
                 targets.append(ground_truth[i])
-
+                
             for _ in range(self.hparams.pge_avg_samples):
                 new_prompts = prompts
                 prompt_idx = prompts_dist.sample()
+                # print(prompts_dist.shape)
+                print(prompt_idx)
                 prompts_indices_list.append(copy.deepcopy(prompt_idx))
 
 
@@ -304,15 +325,25 @@ class ExampleSelection(LightningModule):
 
                 loss = np.mean(losses)
                 loss_list.append(loss)
+                acc_list.append(acc)
             
 
             loss_avg = sum(loss_list) / len(loss_list)
             self.log('loss_avg', loss_avg, prog_bar=True, on_step=True, on_epoch=True, batch_size=len(batch['id']))
-
+            
+            acc_avg = sum(acc_list)/len(acc_list)
+            self.log('acc_avg', acc_avg, prog_bar=True, on_step=True, on_epoch=True, batch_size=len(batch['id']))
+            
             derivative = [-1 / self.sample_probs] * self.hparams.pge_avg_samples
             # print("Begin print derivative")
             # print(derivative)
-            print(prompts_indices_list)
+            with open("./log.txt", "a") as file:
+                file.write(f"acc: {acc_list}\n")
+                file.write(f"avg_acc: {acc_avg}\n")
+                file.write(f"prompts indices: {prompts_indices_list}\n")
+                file.write(f"Prompts:\n {prompts}\n")
+                file.write(f"len: {len(question)}\n")
+                
             for k, indice in enumerate(prompts_indices_list):
                 for i in range(0,self.hparams.sample_size):
                     #derivative[k // self.hparams.sample_size][indice] *= -1
@@ -320,7 +351,8 @@ class ExampleSelection(LightningModule):
 
             self.sample_probs.grad = torch.zeros_like(self.sample_probs)
             for k in range(self.hparams.pge_avg_samples):
-                self.sample_probs.grad += 1 / (self.hparams.pge_avg_samples - 1) * (loss_list[k] - loss_avg) * derivative[k]
+                # self.sample_probs.grad += 1 / (self.hparams.pge_avg_samples - 1) * (loss_list[k] - loss_avg) * derivative[k]
+                self.sample_probs.grad -= 1 / (self.hparams.pge_avg_samples - 1) * (acc_list[k] - acc_avg) * derivative[k]
 
             torch.nn.utils.clip_grad_norm_(self.sample_probs, 3)
 
@@ -389,8 +421,11 @@ class ExampleSelection(LightningModule):
         loss = np.mean(losses)
 
         loss_avg = loss
-        print("One Validation Steo End. Evaluating Result : \n")
-        print("Validation Acc{}".format(acc))
+        with open("./log.txt", "a") as file:
+            file.write("One Validation Step End. Evaluating Result : \n")
+            file.write(f"Validation Acc{acc}\n")
+        # print("One Validation Step End. Evaluating Result : \n")
+        # print("Validation Acc{}".format(acc))
 
         # self.log('valid_acc', valid_acc, prog_bar=True, on_step=True,
         #          on_epoch=True, batch_size=len(batch['id']))
@@ -406,16 +441,20 @@ class ExampleSelection(LightningModule):
     #     epoch_loss = torch.stack([x["loss"] for x in outputs]).mean()
     #     print("\nEpoch {} Train acc is {}\n".format(self.current_epoch, epoch_loss))
     
-    def validation_epoch_end(self, outputs) -> None:
-        valid_acc = torch.stack(outputs).mean()
-        print("\n Epoch {} Valid acc is {} \n".format(self.current_epoch, valid_acc))
-        print("\n")
+    # def on_validation_epoch_end(self) -> None:
+    #     # Assuming `outputs` are saved in an instance variable
+    #     valid_acc = torch.stack(self.val_outputs).mean()  # Replace `self.val_outputs` with your actual variable
+    #     print("\n Epoch {} Valid acc is {} \n".format(self.current_epoch, valid_acc))
+    #     print("\n")
     
     def on_train_epoch_end(self):
         print(self.sample_probs)
         print("Trian epoch end, saving Model")
-        self.model_filename = self.hparams.dirpath + '/model' + datetime.strftime(datetime.now(), '%Y%m%d-%H%M%S') + "_" + str(self.count) + '.pt'
-        #torch.save(self.sample_probs, self.model_filename)
+        with open("./log.txt", "a") as file:
+            file.write("Trian epoch end, saving Model\n")
+            file.write(f"Sample probs:\n {self.sample_probs}\n")
+        # self.model_filename = self.hparams.dirpath + '/model' + datetime.strftime(datetime.now(), '%Y%m%d-%H%M%S') + "_" + str(self.count) + '.pt'
+        # torch.save(self.sample_probs, self.model_filename)
     
     def solve_v_total_exact(self, prompt_emb):
         k = 1

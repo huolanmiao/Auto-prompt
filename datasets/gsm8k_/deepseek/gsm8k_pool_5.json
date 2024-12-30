@@ -1,0 +1,32 @@
+[
+  {
+    "Question": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?",
+    "Rationale": "Natalia sold 48 clips in April. In May, she sold half as many, which is 48 / 2 = 24 clips. To find the total number of clips sold in April and May, we add the two amounts together: 48 + 24 = 72 clips.",
+    "Answer": "The answer is 72.",
+    "Ground_truth": "72"
+  },
+  {
+    "Question": "Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?",
+    "Rationale": "First, we need to convert the 50 minutes into hours since Weng earns by the hour. There are 60 minutes in an hour, so 50 minutes is equivalent to 50/60 = 5/6 hours.\n\nNow, we can calculate her earnings: $12 per hour * (5/6) hours = $10.\n\nWeng earned $10 for 50 minutes of babysitting.",
+    "Answer": "The answer is 10.",
+    "Ground_truth": "10"
+  },
+  {
+    "Question": "Betty is saving money for a new wallet which costs $100. Betty has only half of the money she needs. Her parents decided to give her $15 for that purpose, and her grandparents twice as much as her parents. How much more money does Betty need to buy the wallet?",
+    "Rationale": "Betty has half of the money she needs, which is $100 / 2 = $50. Her parents gave her $15, and her grandparents gave her twice as much as her parents, which is 2 * $15 = $30. So, in total, she received $15 + $30 = $45 from her parents and grandparents. Now, she has $50 + $45 = $95. To buy the wallet, she needs $100, so she still needs $100 - $95 = $5.",
+    "Answer": "The answer is 5.",
+    "Ground_truth": "5"
+  },
+  {
+    "Question": "Julie is reading a 120-page book. Yesterday, she was able to read 12 pages and today, she read twice as many pages as yesterday. If she wants to read half of the remaining pages tomorrow, how many pages should she read?",
+    "Rationale": "Julie has already read 12 pages yesterday and today she read twice as many as yesterday, which is 2 * 12 = 24 pages. So in total, she has read 12 + 24 = 36 pages. The book has 120 pages, so she has 120 - 36 = 84 pages left. If she wants to read half of the remaining pages tomorrow, she should read 84 / 2 = 42 pages.",
+    "Answer": "The answer is 42.",
+    "Ground_truth": "42"
+  },
+  {
+    "Question": "James writes a 3-page letter to 2 different friends twice a week.  How many pages does he write a year?",
+    "Rationale": "James writes a 3-page letter to 2 different friends, which means he writes 3 * 2 = 6 pages per week for each writing session. Since he writes twice a week, he writes 6 * 2 = 12 pages per week. There are 52 weeks in a year, so in a year, he writes 12 * 52 = 624 pages.",
+    "Answer": "The answer is 624.",
+    "Ground_truth": "624"
+  }
+]
