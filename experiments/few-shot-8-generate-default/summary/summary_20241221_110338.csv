@@ -1,0 +1,2 @@
+dataset,version,metric,mode,opencompass.models.OpenAISDK_opencompass_deepseek-chat
+gsm8k,1943cf,accuracy,gen,90.30
