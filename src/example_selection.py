@@ -21,8 +21,9 @@ import sys
 import re
 import json
 import copy
+
 tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-FACTOR = 10000000
+api_key = "sk-e39450eb1e1d4a8e825df0a7e4f5f411"
 
 class ExampleSelection(LightningModule):
     @staticmethod
@@ -51,36 +52,31 @@ class ExampleSelection(LightningModule):
         parser.add_argument("--num_workers", type=int, default=0)
 
         parser.add_argument("--model_name", type=str, default="deepseek")
-        parser.add_argument(
-            "--model_checkpoint",
-            type=str,
-            default="models/model20221028-144859_6.pt",
-        )        
         parser.add_argument("--sample_size", type=int, default=8)
         parser.add_argument("--pge_avg_samples", type=int, default=5)
 
-        parser.add_argument("--task", type=str, choices=["gsm8k","svamp","asdiv","aqua", "singleop","csqa","strategyqa","letter","obqa","esnli", "sst2"],
-                            help="Indicate Task Type",default="gsm8k")
+        parser.add_argument("--task", type=str, help="Indicate Task Type",default="gsm8k")
+        
         return parser
 
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.save_hyperparameters()
-        # openai.api_key = os.getenv("OPENAI_API_KEY")
 
         self.tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+        
         self.knowledge_dataset = KnowledgeDataset(self.hparams.knowledge_data_path)
         self.knowledge_dataset_train = KnowledgeDataset(self.hparams.train_data_path)
-
         self.knowledge_dataset_val = KnowledgeDataset(self.hparams.valid_data_path)
 
         train_size = len(self.knowledge_dataset_train)
-        # Stores probabilities for each example
-
+    
         pool_size = len(self.knowledge_dataset)
+        
+        # 原始代码初始的概率设置有问题，应该是每个位置上选取pool中每个exemplar的概率都是1/pool_size
         # self.sample_probs = torch.FloatTensor([[1 / len(self.knowledge_dataset) * 8] * int(len(self.knowledge_dataset)/8)] * self.hparams.sample_size) 
         self.sample_probs = torch.FloatTensor([[1 / pool_size] * pool_size] * self.hparams.sample_size) 
-        #self.sample_probs = torch.load("./models/xxx.pt")
+        
         self.sample_probs.requires_grad = True
         
         # Activates manual optimization
@@ -128,29 +124,15 @@ class ExampleSelection(LightningModule):
         received = False
 
         while not received:
-            # try:
-                client = OpenAI(api_key="sk-e39450eb1e1d4a8e825df0a7e4f5f411", base_url="https://api.deepseek.com")
-                response = client.chat.completions.create(*args, **kwargs)
-                received = True
-            # except:
-            #     error = sys.exc_info()[0]
-            #     # if error == openai.error.InvalidRequestError:  # something is wrong: e.g. prompt too long
-            #     #     print(
-            #     #         f"InvalidRequestError\nPrompt passed in:\n\n{kwargs['prompt']}\n\n")
-            #     #     assert False
-
-            #     print("API error:", error)
-            #     time.sleep(5)
+            # 设置deepseek的api_key
+            client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+            response = client.chat.completions.create(*args, **kwargs)
+            received = True
         return response
 
     # assuming only one target for one prompt, added to the end of the prompt
     def forward(self, prompts, targets):
-        # print(len(targets))
-        # print(prompts[0])
-        # print("")
-        # print(prompts[1])
-        # print("")
-        # print(prompts[2])
+        # deepseek不支持多个prompt同时输入，需要循环一次生成prompt的回复
         rsp = [self.complete_gpt3(
             model="deepseek-chat",
             messages=[
@@ -162,8 +144,6 @@ class ExampleSelection(LightningModule):
             logprobs = True
         ) for prompt in prompts]
 
-        labels = []
-        preds, all_losses = [], []
         match = 0
         
         for i , target in enumerate(targets):
@@ -174,104 +154,18 @@ class ExampleSelection(LightningModule):
                 pattern = "The answer is \d{1,}\."
                 sttr = re.search(pattern, text.replace("$","").replace(",","").replace("%",""))
                 if (sttr is not None):
-                    #check if match the ground truth
+                    # 对照ground truth，记录正确的次数
                     if(sttr.group(0)[14:-1] == target.replace(",","")):
-                        match += 1
-                        # token = tokenizer(" " + sttr.group(0)[14:-1])
-                        # if((" " + sttr.group(0)[14:-1]) in rsp['choices'][i]["logprobs"]["tokens"]):
-                        #     ans_index = rsp[i].choices[0].logprobs["tokens"].index(" "+ sttr.group(0)[14:-1])
-                        #     prob = np.exp(rsp[i]['choices'][0]["logprobs"]["token_logprobs"][ans_index])
-                        #     loss = -np.log(prob) * FACTOR
-                        #     all_losses.append(loss)
-                        # elif(tokenizer.decode(token['input_ids'][0]) in rsp[i]['choices'][0]["logprobs"]["tokens"]):
-                        #     ans_index = rsp[i]['choices'][0]["logprobs"]["tokens"].index(tokenizer.decode(token['input_ids'][0]))
-                        #     prob = np.exp(rsp[i]['choices'][0]["logprobs"]["token_logprobs"][ans_index])
-                        #     loss = -np.log(prob) * FACTOR
-                        #     all_losses.append(loss)
-                        # else:
-                        #     loss = -np.log(0.9) * FACTOR
-                        #     all_losses.append(loss)
-                    else:
-                        pass
-                        # loss = -np.log(0.05) * FACTOR
-                        # all_losses.append(loss)                           
-                else:
-                    loss = -np.log(0.05) * FACTOR
-                    all_losses.append(loss)                    
-            elif(self.hparams.task == "csqa"):
-                pattern = "So the answer is \([a-z|A-Z]\)."
-                sttr = re.search(pattern, text)
-                if (sttr is not None):
-                    #check if match the ground truth
-                    if(sttr.group(0)[-3:-2].lower() == target.lower()):
-                        match += 1
-                        if( sttr.group(0)[-3:-2].lower() in rsp['choices'][i]["logprobs"]["tokens"]):
-                            ans_index = rsp['choices'][i]["logprobs"]["tokens"].index(sttr.group(0)[-3:-2].lower())
-                            prob = np.exp(rsp['choices'][i]["logprobs"]["token_logprobs"][ans_index])
-                            loss = -np.log(prob) * FACTOR
-                            all_losses.append(loss)
-                        else:
-                            loss = -np.log(0.9) * FACTOR
-                            all_losses.append(loss)
-                    else:
-                        loss = -np.log(0.05) * FACTOR
-                        all_losses.append(loss)                
-                else:
-                    loss = -np.log(0.05) * FACTOR
-                    all_losses.append(loss)           
-            elif(self.hparams.task == "strategyqa"):
-                pattern = "So the answer is (yes|no)."
-                sttr = re.search(pattern, text)
-                if (sttr is not None):
-                    if(sttr.group(0)[17:-1].lower() == target.lower()):
-                        match += 1
-                        if( " " + sttr.group(0)[17:-1].lower() in rsp['choices'][i]["logprobs"]["tokens"]):
-                            ans_index = rsp['choices'][i]["logprobs"]["tokens"].index(" " + sttr.group(0)[17:-1].lower())
-                            prob = np.exp(rsp['choices'][i]["logprobs"]["token_logprobs"][ans_index])
-                            loss = -np.log(prob) * FACTOR
-                            all_losses.append(loss)
-                        else:
-                            loss = -np.log(0.9) * FACTOR
-                            all_losses.append(loss)
-                    else:
-                        loss = -np.log(0.05) * FACTOR
-                        all_losses.append(loss)    
-                else:
-                    loss = -np.log(0.05) * FACTOR
-                    all_losses.append(loss) 
-            elif(self.hparams.task == "letter"):
-                pattern = "So the answer is [a-zA-Z]+."
-                sttr = re.search(pattern, text)
-                if (sttr is not None):
-                    if(sttr.group(0)[17:-1].lower() == target.lower()):
-                        match += 1
-                        if( " " + sttr.group(0)[17:-1].lower() in rsp['choices'][i]["logprobs"]["tokens"]):
-                            ans_index = rsp['choices'][i]["logprobs"]["tokens"].index(" " + sttr.group(0)[17:-1].lower())
-                            prob = np.exp(rsp['choices'][i]["logprobs"]["token_logprobs"][ans_index])
-                            loss = -np.log(prob) * FACTOR
-                            all_losses.append(loss)
-                        elif(" " + sttr.group(0)[17:-2].lower() in rsp['choices'][i]["logprobs"]["tokens"]):
-                            ans_index = rsp['choices'][i]["logprobs"]["tokens"].index(" " + sttr.group(0)[17:-2].lower())
-                            prob = np.exp(rsp['choices'][i]["logprobs"]["token_logprobs"][ans_index])
-                            loss = -np.log(prob) * FACTOR
-                            all_losses.append(loss)                    
-                        else:
-                            loss = -np.log(0.9) * FACTOR
-                            all_losses.append(loss) 
-                    else:
-                        loss = -np.log(0.05) * FACTOR
-                        all_losses.append(loss)   
-                else:
-                    loss = -np.log(0.05) * FACTOR
-                    all_losses.append(loss)  
+                        match += 1                  
+            
         # print(f"match:{match}")
         # print(f"len: {len(targets)}")
         # print(f"acc: {match/len(targets)}")
-        return 0, match/len(targets)
+        return match/len(targets)
         
     def training_step(self, batch, batch_idx=None):
         
-        knowledge_data = batch
+        training_data = batch
         opt = self.optimizers()
         opt.zero_grad()
         with torch.no_grad():
@@ -279,113 +173,78 @@ class ExampleSelection(LightningModule):
             prompts_dist = torch.distributions.Categorical(self.sample_probs)
             #print(prompts_dist)
             prompts_indices_list = []
-            loss_list = []
             acc_list = []
-            #prompts, targets = knowledge_data['prompt'], knowledge_data['targets']
-            question, rationale, answer, ground_truth = knowledge_data['Question'],knowledge_data['Rationale'],knowledge_data['Answer'],knowledge_data['Ground_truth']
+            
+            question, rationale, answer, ground_truth = training_data['Question'],training_data['Rationale'],training_data['Answer'],training_data['Ground_truth']
 
             prompts = []
             targets = []
             
             for i in range(0,len(question)):
-                if(self.hparams.task == "strategyqa"):
-                    prompts.append("Q: Yes or no: " + question[i] + "\n" + "A:")
-                elif(self.hparams.task == "letter"):
-                    prompts.append(question[i])
-                else:
-                    prompts.append("Q: " + question[i] + "\n" + "A:")
+                prompts.append("Q: " + question[i] + "\n" + "A:")
                 targets.append(ground_truth[i])
-                
+            
+            # 我们采样pge_avg_samples种prompt，以减少训练过程中的方差
+            # 每种prompt中包含sample_size个exemplar
             for _ in range(self.hparams.pge_avg_samples):
                 new_prompts = prompts
+                # Sample exemplars for each prompt
                 prompt_idx = prompts_dist.sample()
-                # print(prompts_dist.shape)
-                print(prompt_idx)
                 prompts_indices_list.append(copy.deepcopy(prompt_idx))
 
-
+                # Construct the prompt with the sampled exemplars
                 for k in range(0,self.hparams.sample_size):
                     if(self.hparams.task == "gsm8k"):
                         prompt = "Question: " + self.knowledge_dataset[prompt_idx[k]]['Question'] + "\nAnswer:" + self.knowledge_dataset[prompt_idx[k]]['Rationale'] + " The answer is " + self.knowledge_dataset[prompt_idx[k]]['Ground_truth'] + ".\n\n"
-                    elif(self.hparams.task == "csqa"):
-                        prompt = "Q: " + self.knowledge_dataset[prompt_idx[k]]['Question'] + "\nA:" + self.knowledge_dataset[prompt_idx[k]]['Rationale'] + " So the answer is (" + self.knowledge_dataset[prompt_idx[k]]['Ground_truth'].lower() + ")" + ".\n\n"
-                    elif(self.hparams.task == "strategyqa"):
-                        if(k == 4 or k == 5):
-                            prompt = "Q: " + self.knowledge_dataset[prompt_idx[k]]['Question'] + "\nA:" + self.knowledge_dataset[prompt_idx[k]]['Rationale'] + " " + self.knowledge_dataset[prompt_idx[k]]['Answer']+ "\n\n"
-                        else:
-                            prompt = "Q: Yes or no: " + self.knowledge_dataset[prompt_idx[k]]['Question'] + "\nA:" + self.knowledge_dataset[prompt_idx[k]]['Rationale'] + " " + self.knowledge_dataset[prompt_idx[k]]['Answer']+ "\n\n"
-                    elif(self.hparams.task == "letter"):
-                        prompt = self.knowledge_dataset[prompt_idx[k]]['Question']  + self.knowledge_dataset[prompt_idx[k]]['Rationale'] + " " + self.knowledge_dataset[prompt_idx[k]]['Answer'] + "\n\n"
-
+                    
+                    # 将选取的exemplar依次添加batch中的每个question后面
                     new_prompts = [(prompt + x).strip() for x in new_prompts]
 
                 # Compute loss
-                losses, acc = self(new_prompts, targets)
+                acc = self(new_prompts, targets)
                 self.count = self.count + 1
 
-                loss = np.mean(losses)
-                loss_list.append(loss)
                 acc_list.append(acc)
             
-
-            loss_avg = sum(loss_list) / len(loss_list)
-            self.log('loss_avg', loss_avg, prog_bar=True, on_step=True, on_epoch=True, batch_size=len(batch['id']))
-            
+            # Compute average loss
             acc_avg = sum(acc_list)/len(acc_list)
             self.log('acc_avg', acc_avg, prog_bar=True, on_step=True, on_epoch=True, batch_size=len(batch['id']))
             
-            derivative = [-1 / self.sample_probs] * self.hparams.pge_avg_samples
-            # print("Begin print derivative")
-            # print(derivative)
             with open("./log.txt", "a") as file:
                 file.write(f"acc: {acc_list}\n")
                 file.write(f"avg_acc: {acc_avg}\n")
                 file.write(f"prompts indices: {prompts_indices_list}\n")
                 file.write(f"Prompts:\n {prompts}\n")
                 file.write(f"len: {len(question)}\n")
-                
+            
+            # Update the policy
+            derivative = [-1 / self.sample_probs] * self.hparams.pge_avg_samples   
             for k, indice in enumerate(prompts_indices_list):
                 for i in range(0,self.hparams.sample_size):
-                    #derivative[k // self.hparams.sample_size][indice] *= -1
                     derivative[k][i][indice[i]] *= -1
 
             self.sample_probs.grad = torch.zeros_like(self.sample_probs)
             for k in range(self.hparams.pge_avg_samples):
-                # self.sample_probs.grad += 1 / (self.hparams.pge_avg_samples - 1) * (loss_list[k] - loss_avg) * derivative[k]
                 self.sample_probs.grad -= 1 / (self.hparams.pge_avg_samples - 1) * (acc_list[k] - acc_avg) * derivative[k]
 
             torch.nn.utils.clip_grad_norm_(self.sample_probs, 3)
 
             opt.step()
 
-            # print(self.sample_probs)
             self.constrain_score_by_whole_exact(self.sample_probs)
 
-            # print(self.sample_probs)
 
-
-
-        # return torch.tensor(acc)
     def validation_step(self, batch, batch_idx=None):
-        knowledge_data = batch
-
-        # For each k, we prepend a prompt and calculate loss
-        #prompts_dist = torch.distributions.Categorical(self.sample_probs)
-        prompts_indices_list = []
+        testing_data = batch
         
-        loss_list = []
-        #prompts, targets = knowledge_data['prompt'], knowledge_data['targets']
-        question, rationale, answer, ground_truth = knowledge_data['Question'],knowledge_data['Rationale'],knowledge_data['Answer'],knowledge_data['Ground_truth']
+        question, rationale, answer, ground_truth = testing_data['Question'],testing_data['Rationale'],testing_data['Answer'],testing_data['Ground_truth']
         prompts = []
         targets = []
         for i in range(0,len(question)):
-            if(self.hparams.task == "strategyqa"):
-                prompts.append("Q: Yes or no: " + question[i] + "\n" + "A:")
-            elif(self.hparams.task == "letter"):
-                prompts.append(question[i])
-            else:
-                prompts.append("Q: " + question[i] + "\n" + "A:")            
+            prompts.append("Q: " + question[i] + "\n" + "A:")            
             targets.append(ground_truth[i])
+        
+        # 选取当前policy中每个位置概率最高的exemplar，作为测试的prompt
         # Create a tensor of size [prompt_length]
         prompt_idx = torch.zeros(len(self.sample_probs),dtype=torch.int64) 
         # Fill it with argmax for each dimension
@@ -398,37 +257,18 @@ class ExampleSelection(LightningModule):
             else:
                 prompt_idx[i] = idx[0]
 
-        prompts_indices_list.append(copy.deepcopy(prompt_idx))
         for k in range(0,self.hparams.sample_size):
-            # Sample a prompt
-   
+            # Construct the prompt
             if(self.hparams.task == "gsm8k"):
                 prompt = "Question: " + self.knowledge_dataset[prompt_idx[k]]['Question'] + "\nAnswer: Let's think step by step." + self.knowledge_dataset[prompt_idx[k]]['Rationale'] + " The answer is " + self.knowledge_dataset[prompt_idx[k]]['Ground_truth'] + ".\n\n"
-            elif(self.hparams.task == "csqa"):
-                prompt = "Q: " + self.knowledge_dataset[prompt_idx[k]]['Question'] + "\nA:" + self.knowledge_dataset[prompt_idx[k]]['Rationale'] + " So the answer is (" + self.knowledge_dataset[prompt_idx[k]]['Ground_truth'].lower() + ")" + ".\n\n"
-            elif(self.hparams.task == "strategyqa"):
-                if(k == 4 or k == 5):
-                    prompt = "Q: " + self.knowledge_dataset[prompt_idx[k]]['Question'] + "\nA:" + self.knowledge_dataset[prompt_idx[k]]['Rationale'] + " " + self.knowledge_dataset[prompt_idx[k]]['Answer']+ "\n\n"
-                else:
-                    prompt = "Q: Yes or no: " + self.knowledge_dataset[prompt_idx[k]]['Question'] + "\nA:" + self.knowledge_dataset[prompt_idx[k]]['Rationale'] + " " + self.knowledge_dataset[prompt_idx[k]]['Answer']+ "\n\n"
-            elif(self.hparams.task == "letter"):
-                prompt = self.knowledge_dataset[prompt_idx[k]]['Question']  + self.knowledge_dataset[prompt_idx[k]]['Rationale'] + " " + self.knowledge_dataset[prompt_idx[k]]['Answer'] + "\n\n"
-         
             prompts = [(prompt + x).strip() for x in prompts]
 
-        # Compute loss
-        losses,acc = self(prompts, targets)
-        loss = np.mean(losses)
-
-        loss_avg = loss
+        # Compute accuracy
+        acc = self(prompts, targets)
         with open("./log.txt", "a") as file:
             file.write("One Validation Step End. Evaluating Result : \n")
             file.write(f"Validation Acc{acc}\n")
-        # print("One Validation Step End. Evaluating Result : \n")
-        # print("Validation Acc{}".format(acc))
-
-        # self.log('valid_acc', valid_acc, prog_bar=True, on_step=True,
-        #          on_epoch=True, batch_size=len(batch['id']))
+            
         return torch.tensor(acc)
 
     def configure_optimizers(self):
@@ -436,16 +276,6 @@ class ExampleSelection(LightningModule):
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.hparams.max_epochs, eta_min=0)
         return [optimizer], [scheduler]
 
-
-    # def training_epoch_end(self, outputs) -> None:
-    #     epoch_loss = torch.stack([x["loss"] for x in outputs]).mean()
-    #     print("\nEpoch {} Train acc is {}\n".format(self.current_epoch, epoch_loss))
-    
-    # def on_validation_epoch_end(self) -> None:
-    #     # Assuming `outputs` are saved in an instance variable
-    #     valid_acc = torch.stack(self.val_outputs).mean()  # Replace `self.val_outputs` with your actual variable
-    #     print("\n Epoch {} Valid acc is {} \n".format(self.current_epoch, valid_acc))
-    #     print("\n")
     
     def on_train_epoch_end(self):
         print(self.sample_probs)
@@ -453,8 +283,6 @@ class ExampleSelection(LightningModule):
         with open("./log.txt", "a") as file:
             file.write("Trian epoch end, saving Model\n")
             file.write(f"Sample probs:\n {self.sample_probs}\n")
-        # self.model_filename = self.hparams.dirpath + '/model' + datetime.strftime(datetime.now(), '%Y%m%d-%H%M%S') + "_" + str(self.count) + '.pt'
-        # torch.save(self.sample_probs, self.model_filename)
     
     def solve_v_total_exact(self, prompt_emb):
         k = 1
@@ -483,12 +311,3 @@ class ExampleSelection(LightningModule):
         for i in range(len(prompt_embeds)):
             v, itr = self.solve_v_total_exact(prompt_embeds[i])
             prompt_embeds[i].sub_(v).clamp_(0.0001, 1)
-
-    # See bilevel training paper p. 14
-    def project(self, z: torch.FloatTensor):
-        v = max(0, (z.sum() - 1) / z.numel())
-        z = z.add(-v)
-        z = z.clamp(0, 1)
-        assert 0 <= z.sum() <= 1
-        return z
-    

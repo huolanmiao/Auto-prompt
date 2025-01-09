@@ -18,68 +18,39 @@ prompt = "Q: There are 15 trees in the grove. Grove workers will plant trees in 
 # The human written 8 COT examplars with  QA -> Question, Answer
 #prompt = "Question: There are 15 trees in the grove. Grove workers will plant trees in the grove today. After they are done, there will be 21 trees. How many trees did the grove workers plant today?\nAnswer: We start with 15 trees. Later we have 21 trees. The difference must be the number of trees they planted. So, they must have planted 21 - 15 = 6 trees. The answer is 6.\n\nQuestion: If there are 3 cars in the parking lot and 2 more cars arrive, how many cars are in the parking lot?\nAnswer: There are 3 cars in the parking lot already. 2 more arrive. Now there are 3 + 2 = 5 cars. The answer is 5.\n\nQuestion: Leah had 32 chocolates and her sister had 42. If they ate 35, how many pieces do they have left in total?\nAnswer: Leah had 32 chocolates and Leah's sister had 42. That means there were originally 32 + 42 = 74 chocolates. 35 have been eaten. So in total they still have 74 - 35 = 39 chocolates. The answer is 39.\n\nQuestion: Jason had 20 lollipops. He gave Denny some lollipops. Now Jason has 12 lollipops. How many lollipops did Jason give to Denny?\nAnswer: Jason had 20 lollipops. Since he only has 12 now, he must have given the rest to Denny. The number of lollipops he has given to Denny must have been 20 - 12 = 8 lollipops. The answer is 8.\n\nQuestion: Shawn has five toys. For Christmas, he got two toys each from his mom and dad. How many toys does he have now?\nAnswer: He has 5 toys. He got 2 from mom, so after that he has 5 + 2 = 7 toys. Then he got 2 more from dad, so in total he has 7 + 2 = 9 toys. The answer is 9.\n\nQuestion: There were nine computers in the server room. Five more computers were installed each day, from monday to thursday. How many computers are now in the server room?\nAnswer: There are 4 days from monday to thursday. 5 computers were added each day. That means in total 4 * 5 = 20 computers were added. There were 9 computers in the beginning, so now there are 9 + 20 = 29 computers. The answer is 29.\n\nQuestion: Michael had 58 golf balls. On tuesday, he lost 23 golf balls. On wednesday, he lost 2 more. How many golf balls did he have at the end of wednesday?\nAnswer: Michael initially had 58 balls. He lost 23 on Tuesday, so after that he has 58 - 23 = 35 balls. On Wednesday he lost 2 more so now he has 35 - 2 = 33 balls. The answer is 33.\n\nQuestion: Olivia has $23. She bought five bagels for $3 each. How much money does she have left?\nAnswer: She bought 5 bagels for $3 each. This means she spent 5 * $3 = $15 on the bagels. She had $23 in beginning, so now she has $23 - $15 = $8. The answer is 8.\n\n"
 
-# # deekseek api
-# base_url = "https://api.deepseek.com"
-# api_key = "sk-e39450eb1e1d4a8e825df0a7e4f5f411"
-# model = "deepseek-chat"
-code_api_list = "[your key]"
+
+# deekseek api
+base_url = "https://api.deepseek.com"
+api_key = "sk-e39450eb1e1d4a8e825df0a7e4f5f411"
+model = "deepseek-chat"
 
 from openai import OpenAI
 
 
-# response = client.chat.completions.create(
-#     model="deepseek-chat",
-#     messages=[
-#         {"role": "system", "content": "You are a helpful assistant"},
-#         {"role": "user", "content": "Hello"},
-#     ],
-#     stream=False
-# )
-
-
 def complete_gpt3(input, count, model = "code-davinci-002",temperature = 0, max_tokens = 256):
     # call GPT-3 API until result is provided and then return it
-    client = OpenAI(api_key="sk-e39450eb1e1d4a8e825df0a7e4f5f411", base_url="https://api.deepseek.com")
+    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
     response = None
     received = False
     while not received:
-        # try:
-            response = client.chat.completions.create(
-                    model="deepseek-chat",
-                    messages=[
-                                {"role": "system", "content": "You are a helpful assistant"},
-                                {"role": "user", "content": f"{input}"},
-                            ],
-                    max_tokens=max_tokens,
-                    temperature = temperature,                
-                ).choices[0].message.content
-            # print(response)
-            # response = openai.Completion.create(
-            #         model="deepseek-chat",
-            #         base_url="https://api.deepseek.com",
-            #         prompt=input,
-            #         max_tokens=max_tokens,
-            #         temperature = temperature,    
-            #         api_key="sk-e39450eb1e1d4a8e825df0a7e4f5f411",            
-            #     )["choices"][0]["text"]
-            print(response)
-            received = True
-        # except:
-        #     error = sys.exc_info()[0]
-        #     if error == openai.error.InvalidRequestError:  # something is wrong: e.g. prompt too long
-        #         print(
-        #             f"InvalidRequestError\nPrompt passed in:\n\n{input}\n\n")
-        #         assert False
-        #     print("API error:", error)
-        #     count += 1
-        #     # time.sleep(5)
+        response = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                            {"role": "system", "content": "You are a helpful assistant"},
+                            {"role": "user", "content": f"{input}"},
+                        ],
+                max_tokens=max_tokens,
+                temperature = temperature,                
+            ).choices[0].message.content
+        # print(response)
+        received = True
     return response
 
 def generate_pool_for_gsm8k(args, n, zero_shot = False):
     count = 0
     return_list_gsm8k_pool = []
     for index in range(0,n):
-        # Did not use Manual-COT
+        # Use Zero-shot to generate the pool
         if(zero_shot == True):
             first_stage_input = 'Q: ' + gsm8k_train["question"][index] + "\nAnswer: Let's think step by step."
             response = complete_gpt3(input = first_stage_input, count = count, model = args.model, max_tokens=128)
@@ -245,19 +216,21 @@ if __name__ == '__main__':
     parser.add_argument("--valid", action="store_true",help="Preprocess for gsm8k validation set")
 
     parser.add_argument("--zero", action="store_true",help="Use Zero-shot method to generate pool")
-    parser.add_argument("--pool_size", type=int, default=5)
+    parser.add_argument("--pool_size", type=int, default=20)
     parser.add_argument("--train_size", type=int, default=100)
     parser.add_argument("--val_size", type=int, default=100)
 
     parser.add_argument("--model", type=str, choices=["text-davinci-002","code-davinci-002","turbo"],help="whcih OpenAI model to chose",default="deepseek")
     args = parser.parse_args()
 
+    # Generate the exemplar pool
     if(args.pool == True):
         if(args.zero == True):
+            # Generate exemplars by deepseek
             return_list_gsm8k_pool = generate_pool_for_gsm8k(args,int(args.pool_size * 5),zero_shot=True)
             print(len(return_list_gsm8k_pool))
             # filter the correct ones
-            return_list_gsm8k_pool_correct = return_list_gsm8k_pool#select_correct_examplars(return_list_gsm8k_pool)
+            return_list_gsm8k_pool_correct = return_list_gsm8k_pool
             print("Total there are {} correct examplars".format(len(return_list_gsm8k_pool_correct)))
             if(len(return_list_gsm8k_pool_correct) >= args.pool_size):
                 return_list_gsm8k_pool_correct = return_list_gsm8k_pool_correct[0:args.pool_size]
@@ -269,6 +242,7 @@ if __name__ == '__main__':
                 with open("./gsm8k_/{}/gsm8k_pool_{}_zeroshot_2.json".format(args.model,len(return_list_gsm8k_pool_correct)),"w") as f:
                     json.dump(return_list_gsm8k_pool_correct,f,indent=2)
         else:
+            # Generate exemplars by deepseek
             return_list_gsm8k_pool = generate_pool_for_gsm8k(args, int(args.pool_size * 2.5))
             # filter the correct ones
             return_list_gsm8k_pool_correct = select_correct_examplars(return_list_gsm8k_pool)

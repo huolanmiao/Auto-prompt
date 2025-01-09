@@ -10,7 +10,7 @@ from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies.ddp import DDPStrategy
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from src.example_selection import ExampleSelection
+from example_selection import ExampleSelection
 
 
 if __name__ == "__main__":
