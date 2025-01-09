@@ -11,7 +11,7 @@ from transformers import (
 from torch.optim import Adam
 
 from datetime import datetime
-from .data.knowledge import KnowledgeDataset
+from data.knowledge import KnowledgeDataset
 import numpy as np
 from openai import OpenAI
 import os
@@ -35,7 +35,7 @@ class ExampleSelection(LightningModule):
         parser.add_argument(
             "--knowledge_data_path",
             type=str,
-            default="datasets/gsm8k_/deepseek/gsm8k_pool_20.json",
+            default="./datasets/gsm8k_/deepseek/gsm8k_pool_20.json",
         )
         parser.add_argument(
             "--train_data_path",

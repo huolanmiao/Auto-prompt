@@ -2,6 +2,10 @@
 
 ## Generate the dataset
 In `./datasets/preprocess_gsm8k.py` we prepare the exemplar pool(knowledge dataset), train and test datasets.
+```shell
+cd ./datasets
+python preprocess_gsm8k.py --pool --pool_size 20
+```
 ### Construct the exemplar pool
 - config: `--pool --pool_size <your desired pool size>`
 - We use deepseek-chat to generate the response, and select the answer that matches the gound truth. 
@@ -26,6 +30,9 @@ In `./datasets/preprocess_gsm8k.py` we prepare the exemplar pool(knowledge datas
 
 ## Train the exemplar selection policy
 In `./src/example_selection.py` we train a policy that selects exemplars from knowledge dataset to construct the final prompt.
+```shell
+python ./src/train_example_selection.py 
+```
 - The trained policy is a matrix of probability whose dimension is `sample_size * pool_size`. Exemplar at each position of the final prompt is sampled independently from its own distribution over the exemplar pool.
 - We use variation-reduced policy gradient estimator to optimize our policy.
   - We use the accuracy on training dataset as environmental response to a constructed prompt.
