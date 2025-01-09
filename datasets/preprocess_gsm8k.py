@@ -21,7 +21,7 @@ prompt = "Q: There are 15 trees in the grove. Grove workers will plant trees in 
 
 # deekseek api
 base_url = "https://api.deepseek.com"
-api_key = "sk-e39450eb1e1d4a8e825df0a7e4f5f411"
+api_key = ""
 model = "deepseek-chat"
 
 from openai import OpenAI

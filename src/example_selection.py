@@ -23,7 +23,7 @@ import json
 import copy
 
 tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-api_key = "sk-e39450eb1e1d4a8e825df0a7e4f5f411"
+api_key = ""
 
 class ExampleSelection(LightningModule):
     @staticmethod
