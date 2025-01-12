@@ -7,11 +7,12 @@ cd ./datasets
 python preprocess_gsm8k.py --pool --pool_size 20
 ```
 ### Construct the exemplar pool
-- config: `--pool --pool_size <your desired pool size>`
+- config: `python preprocess_gsm8k.py --pool --pool_size <your desired pool size>`
 - We use deepseek-chat to generate the response, and select the answer that matches the gound truth. 
 - The knowledge dataset is shown in `./datasets/gsm8k_/deepseek/gsm8k_pool_20.json`
 ### Prepare the train and test dataset 
-- config: `--train --train_size <your desired train size>``--test --test_size <your desired test size>`
+- config: `python preprocess_gsm8k.py --train --train_size <your desired train size>` 
+`python preprocess_gsm8k.py --test --test_size <your desired test size>`
 - They are selected from GSM8K dataset. We set the range of index for selection to avoid the overlap.
 - We need these dataset to train the policy to select the exemplars for final prompt.
 ### Dataset Format
@@ -61,6 +62,8 @@ python ./src/train_example_selection.py
 ## Experiments
 We sample the prompt from the final policy and test its performence on GSM8K. The script for evaluation by opencompass is in `./gsm8k_prompts`. The results of evaluation is in `./experiments`.
 
+The final prompt constructed by this method is shown in `gsm8k_gen_8_shot_generated_epoch10_lr_1e-2.py` and `gsm8k_gen_8_shot_generated_default.py`. The evaluation results is shown below.
+
 ### Do permutations influence the performance?
 This work was originally implemented with davinci-002. As the LLM has updated innumerable versions and has been making a great progress, we wonder whether the style, permutations of the prompt, as well as other factors mentioned by the author, still influence the performance.
 
@@ -80,19 +83,20 @@ We generate the prompt from the policy and compare it with randomly sampled exem
     <figcaption>The performance of manual CoT prompt, trained auto prompt and randomly sampled auto prompt.</figcaption>
 </figure>
 
-```
+### Evaluation results of all the prompts
+```shell
 # few-shot-4 90.07
-python run.py --models deepseek_api.py --datasets gsm8k_gen_few_shot.py --debug 
+python run.py --models deepseek_api.py --datasets gsm8k_gen_4_shot.py --debug 
 # few-shot-4 shuffle 89.46
-python run.py --models deepseek_api.py --datasets gsm8k_gen_few_shot_shuffle.py --debug 
+python run.py --models deepseek_api.py --datasets gsm8k_gen_4_shot_shuffle.py --debug 
 # few-shot-8 89.16
-python run.py --models deepseek_api.py --datasets gsm8k_gen_few_shot_8.py --debug 
+python run.py --models deepseek_api.py --datasets gsm8k_gen_8_shot.py --debug 
 # few-shot-8 shuffle 89.01
-python run.py --models deepseek_api.py --datasets gsm8k_gen_few_shot_8_shuffle.py --debug 
+python run.py --models deepseek_api.py --datasets gsm8k_gen_8_shot_shuffle.py --debug 
 # few-shot-8 generated default 90.30
-python run.py --models deepseek_api.py --datasets gsm8k_gen_few_shot_generated_default.py --debug 
+python run.py --models deepseek_api.py --datasets gsm8k_gen_8_shot_generated_default.py --debug 
 # few-shot-8 generated epoch10 lr1e-2  90.37
-python run.py --models deepseek_api.py --datasets gsm8k_gen_few_shot_generated_epoch10_lr_1e-2.py --debug 
+python run.py --models deepseek_api.py --datasets gsm8k_gen_8_shot_generated_epoch10_lr_1e-2.py --debug 
 # few-shot-8 randomly sample from example pool 88.93
-python run.py --models deepseek_api.py --datasets gsm8k_gen_few_shot_8_random_sample.py --debug 
+python run.py --models deepseek_api.py --datasets gsm8k_gen_8_shot_random_sample.py --debug 
 ```
